@@ -2,6 +2,7 @@
 name = "shake-escrow"
 version = "0.1.0"
 description = "Peer-to-peer wager escrow for Solana: two equal stakes, a named resolver, permissionless timeout refunds"
+license = "Apache-2.0"
 edition.workspace = true
 rust-version.workspace = true
 

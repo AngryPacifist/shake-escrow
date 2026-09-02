@@ -86,4 +86,10 @@ case for any single failure is small too.
 
 ## Licence
 
-Not yet chosen — decide before publishing.
+Apache License 2.0. See `LICENSE` and `NOTICE`.
+
+Apache rather than a shorter permissive licence for one substantive reason: it grants
+patent rights explicitly and withdraws them from anyone who brings a patent suit over the
+software. MIT and ISC say nothing about patents at all, which is a gap worth closing under
+code that holds other people's money. It also states the terms inbound contributions arrive
+under, which stops being a hypothetical the first time a stranger opens a pull request.
