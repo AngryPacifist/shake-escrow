@@ -1,0 +1,10 @@
+[fuzz.metrics]
+enabled = true
+
+
+[[fuzz.programs]]
+address = "Hv4f6R9GgZ9nvK8HvA3KYwxPTrmiqyiE9KFvrENjgD67"
+program = "../target/deploy/shake_escrow.so"
+# initialize_config is gated to the program's upgrade authority, so the harness pins that
+# authority to its own deterministic admin keypair (seed [1u8; 32]).
+upgrade_authority = "AKnL4NNf3DGWZJS6cPknBuEGnVsV4A4m5tgebLHaRSZ9"

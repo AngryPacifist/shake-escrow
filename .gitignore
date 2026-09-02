@@ -1,0 +1,26 @@
+# === secrets ===
+# The program keypair lives here and IS the program's identity. Losing it means a new
+# program id; leaking it means nothing on its own (upgrades need the upgrade authority),
+# but it is still key material and belongs in a backup, not in git.
+target/
+**/*-keypair.json
+.env
+.env.*
+!.env.example
+**/.keys/
+
+# === build output ===
+node_modules/
+.anchor/
+test-ledger/
+dist/
+
+# Trident fuzzing build artifacts (the harness itself IS tracked).
+trident-tests/target/
+trident-tests/Cargo.lock
+
+# === editor / OS noise ===
+.DS_Store
+*.swp
+.idea/
+.vscode/

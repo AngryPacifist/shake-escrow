@@ -1,0 +1,21 @@
+skip_local_validator = true
+
+[toolchain]
+
+[features]
+resolution = true
+skip-lint = false
+
+[programs.localnet]
+shake_escrow = "Hv4f6R9GgZ9nvK8HvA3KYwxPTrmiqyiE9KFvrENjgD67"
+
+[provider]
+# The Solana CLI's conventional wallet location, resolved per user. Override both of
+# these on the command line when deploying anywhere other than a local validator.
+cluster = "localnet"
+wallet = "~/.config/solana/id.json"
+
+[scripts]
+test = "cargo test"
+
+[hooks]
