@@ -1,15 +1,20 @@
+pub mod admin_transfer;
 pub mod cancel;
 pub mod close_expired;
+pub mod concede;
 pub mod create_wager;
 pub mod initialize_config;
+pub mod payout;
 pub mod refund_side;
 pub mod resolve;
 pub mod stake_side;
 pub mod unstake_side;
 pub mod update_config;
 
+pub use admin_transfer::*;
 pub use cancel::*;
 pub use close_expired::*;
+pub use concede::*;
 pub use create_wager::*;
 pub use initialize_config::*;
 pub use refund_side::*;

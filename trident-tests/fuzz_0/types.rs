@@ -34,6 +34,155 @@ pub mod shake_escrow {
     // ------------------------------------------------------------------------
 
     // ....................................................................
+    // Instruction: AcceptAdmin
+    // ....................................................................
+
+    /// Main instruction struct for AcceptAdmin
+    pub struct AcceptAdminInstruction {
+        pub accounts: AcceptAdminInstructionAccountMetas,
+        pub data: AcceptAdminInstructionData,
+        pub remaining_accounts: Vec<AccountMeta>,
+    }
+
+    /// Account metadata for AcceptAdmin instruction
+    #[derive(Debug, Clone, Default)]
+    pub struct AcceptAdminInstructionAccountMetas {
+        pub new_admin: AccountMeta,
+
+        pub config: AccountMeta,
+
+        pub admin_transfer: AccountMeta,
+
+        pub previous_admin: AccountMeta,
+
+        pub event_authority: AccountMeta,
+
+        pub program: AccountMeta,
+    }
+
+    /// Account pubkeys for AcceptAdmin instruction
+    #[derive(Debug, Clone)]
+    pub struct AcceptAdminInstructionAccounts {
+        pub new_admin: Pubkey,
+
+        pub config: Pubkey,
+
+        pub admin_transfer: Pubkey,
+
+        pub previous_admin: Pubkey,
+
+        pub event_authority: Pubkey,
+
+        pub program: Pubkey,
+    }
+
+    impl AcceptAdminInstructionAccounts {
+        pub fn new(
+            new_admin: Pubkey,
+
+            config: Pubkey,
+
+            admin_transfer: Pubkey,
+
+            previous_admin: Pubkey,
+
+            event_authority: Pubkey,
+
+            program: Pubkey,
+        ) -> Self {
+            Self {
+                new_admin,
+
+                config,
+
+                admin_transfer,
+
+                previous_admin,
+
+                event_authority,
+
+                program,
+            }
+        }
+    }
+
+    /// Instruction data for AcceptAdmin
+    #[derive(Debug, BorshDeserialize, BorshSerialize, Clone)]
+    pub struct AcceptAdminInstructionData {}
+
+    impl AcceptAdminInstructionData {
+        pub fn new() -> Self {
+            Self {}
+        }
+    }
+
+    /// Implementation for AcceptAdminInstruction
+    impl AcceptAdminInstruction {
+        fn discriminator() -> [u8; 8] {
+            [112u8, 42u8, 45u8, 90u8, 116u8, 181u8, 13u8, 170u8]
+        }
+
+        pub fn data(data: AcceptAdminInstructionData) -> Self {
+            Self {
+                accounts: AcceptAdminInstructionAccountMetas::default(),
+                data,
+                remaining_accounts: Vec::new(),
+            }
+        }
+
+        pub fn accounts(mut self, accounts: AcceptAdminInstructionAccounts) -> Self {
+            self.accounts.new_admin = AccountMeta::new_readonly(accounts.new_admin, true);
+
+            self.accounts.config = AccountMeta::new(accounts.config, false);
+
+            self.accounts.admin_transfer = AccountMeta::new(accounts.admin_transfer, false);
+
+            self.accounts.previous_admin = AccountMeta::new(accounts.previous_admin, false);
+
+            self.accounts.event_authority =
+                AccountMeta::new_readonly(accounts.event_authority, false);
+
+            self.accounts.program = AccountMeta::new_readonly(accounts.program, false);
+
+            self
+        }
+
+        pub fn remaining_accounts(mut self, accounts: Vec<AccountMeta>) -> Self {
+            self.remaining_accounts = accounts;
+            self
+        }
+
+        fn to_account_metas(&self) -> Vec<AccountMeta> {
+            let mut metas = Vec::new();
+
+            metas.push(self.accounts.new_admin.clone());
+
+            metas.push(self.accounts.config.clone());
+
+            metas.push(self.accounts.admin_transfer.clone());
+
+            metas.push(self.accounts.previous_admin.clone());
+
+            metas.push(self.accounts.event_authority.clone());
+
+            metas.push(self.accounts.program.clone());
+
+            metas.extend(self.remaining_accounts.clone());
+            metas
+        }
+
+        pub fn instruction(&self) -> Instruction {
+            let mut buffer: Vec<u8> = Vec::new();
+
+            buffer.extend_from_slice(&Self::discriminator());
+
+            self.data.serialize(&mut buffer).unwrap();
+
+            Instruction::new_with_bytes(program_id(), &buffer, self.to_account_metas())
+        }
+    }
+
+    // ....................................................................
     // Instruction: CancelAccept
     // ....................................................................
 
@@ -267,6 +416,143 @@ pub mod shake_escrow {
             metas.push(self.accounts.rent_collector.clone());
 
             metas.push(self.accounts.token_program.clone());
+
+            metas.push(self.accounts.event_authority.clone());
+
+            metas.push(self.accounts.program.clone());
+
+            metas.extend(self.remaining_accounts.clone());
+            metas
+        }
+
+        pub fn instruction(&self) -> Instruction {
+            let mut buffer: Vec<u8> = Vec::new();
+
+            buffer.extend_from_slice(&Self::discriminator());
+
+            self.data.serialize(&mut buffer).unwrap();
+
+            Instruction::new_with_bytes(program_id(), &buffer, self.to_account_metas())
+        }
+    }
+
+    // ....................................................................
+    // Instruction: CancelAdminTransfer
+    // ....................................................................
+
+    /// Main instruction struct for CancelAdminTransfer
+    pub struct CancelAdminTransferInstruction {
+        pub accounts: CancelAdminTransferInstructionAccountMetas,
+        pub data: CancelAdminTransferInstructionData,
+        pub remaining_accounts: Vec<AccountMeta>,
+    }
+
+    /// Account metadata for CancelAdminTransfer instruction
+    #[derive(Debug, Clone, Default)]
+    pub struct CancelAdminTransferInstructionAccountMetas {
+        pub admin: AccountMeta,
+
+        pub config: AccountMeta,
+
+        pub admin_transfer: AccountMeta,
+
+        pub event_authority: AccountMeta,
+
+        pub program: AccountMeta,
+    }
+
+    /// Account pubkeys for CancelAdminTransfer instruction
+    #[derive(Debug, Clone)]
+    pub struct CancelAdminTransferInstructionAccounts {
+        pub admin: Pubkey,
+
+        pub config: Pubkey,
+
+        pub admin_transfer: Pubkey,
+
+        pub event_authority: Pubkey,
+
+        pub program: Pubkey,
+    }
+
+    impl CancelAdminTransferInstructionAccounts {
+        pub fn new(
+            admin: Pubkey,
+
+            config: Pubkey,
+
+            admin_transfer: Pubkey,
+
+            event_authority: Pubkey,
+
+            program: Pubkey,
+        ) -> Self {
+            Self {
+                admin,
+
+                config,
+
+                admin_transfer,
+
+                event_authority,
+
+                program,
+            }
+        }
+    }
+
+    /// Instruction data for CancelAdminTransfer
+    #[derive(Debug, BorshDeserialize, BorshSerialize, Clone)]
+    pub struct CancelAdminTransferInstructionData {}
+
+    impl CancelAdminTransferInstructionData {
+        pub fn new() -> Self {
+            Self {}
+        }
+    }
+
+    /// Implementation for CancelAdminTransferInstruction
+    impl CancelAdminTransferInstruction {
+        fn discriminator() -> [u8; 8] {
+            [38u8, 131u8, 157u8, 31u8, 240u8, 137u8, 44u8, 215u8]
+        }
+
+        pub fn data(data: CancelAdminTransferInstructionData) -> Self {
+            Self {
+                accounts: CancelAdminTransferInstructionAccountMetas::default(),
+                data,
+                remaining_accounts: Vec::new(),
+            }
+        }
+
+        pub fn accounts(mut self, accounts: CancelAdminTransferInstructionAccounts) -> Self {
+            self.accounts.admin = AccountMeta::new(accounts.admin, true);
+
+            self.accounts.config = AccountMeta::new_readonly(accounts.config, false);
+
+            self.accounts.admin_transfer = AccountMeta::new(accounts.admin_transfer, false);
+
+            self.accounts.event_authority =
+                AccountMeta::new_readonly(accounts.event_authority, false);
+
+            self.accounts.program = AccountMeta::new_readonly(accounts.program, false);
+
+            self
+        }
+
+        pub fn remaining_accounts(mut self, accounts: Vec<AccountMeta>) -> Self {
+            self.remaining_accounts = accounts;
+            self
+        }
+
+        fn to_account_metas(&self) -> Vec<AccountMeta> {
+            let mut metas = Vec::new();
+
+            metas.push(self.accounts.admin.clone());
+
+            metas.push(self.accounts.config.clone());
+
+            metas.push(self.accounts.admin_transfer.clone());
 
             metas.push(self.accounts.event_authority.clone());
 
@@ -708,6 +994,236 @@ pub mod shake_escrow {
     }
 
     // ....................................................................
+    // Instruction: Concede
+    // ....................................................................
+
+    /// Main instruction struct for Concede
+    pub struct ConcedeInstruction {
+        pub accounts: ConcedeInstructionAccountMetas,
+        pub data: ConcedeInstructionData,
+        pub remaining_accounts: Vec<AccountMeta>,
+    }
+
+    /// Account metadata for Concede instruction
+    #[derive(Debug, Clone, Default)]
+    pub struct ConcedeInstructionAccountMetas {
+        pub conceder: AccountMeta,
+
+        pub config: AccountMeta,
+
+        pub wager: AccountMeta,
+
+        pub winner: AccountMeta,
+
+        pub winner_token: AccountMeta,
+
+        pub fee_token: AccountMeta,
+
+        pub vault: AccountMeta,
+
+        pub counter_a: AccountMeta,
+
+        pub counter_b: AccountMeta,
+
+        pub rent_collector: AccountMeta,
+
+        pub token_program: AccountMeta,
+
+        pub event_authority: AccountMeta,
+
+        pub program: AccountMeta,
+    }
+
+    /// Account pubkeys for Concede instruction
+    #[derive(Debug, Clone)]
+    pub struct ConcedeInstructionAccounts {
+        pub conceder: Pubkey,
+
+        pub config: Pubkey,
+
+        pub wager: Pubkey,
+
+        pub winner: Pubkey,
+
+        pub winner_token: Pubkey,
+
+        pub fee_token: Pubkey,
+
+        pub vault: Pubkey,
+
+        pub counter_a: Pubkey,
+
+        pub counter_b: Pubkey,
+
+        pub rent_collector: Pubkey,
+
+        pub event_authority: Pubkey,
+
+        pub program: Pubkey,
+    }
+
+    impl ConcedeInstructionAccounts {
+        pub fn new(
+            conceder: Pubkey,
+
+            config: Pubkey,
+
+            wager: Pubkey,
+
+            winner: Pubkey,
+
+            winner_token: Pubkey,
+
+            fee_token: Pubkey,
+
+            vault: Pubkey,
+
+            counter_a: Pubkey,
+
+            counter_b: Pubkey,
+
+            rent_collector: Pubkey,
+
+            event_authority: Pubkey,
+
+            program: Pubkey,
+        ) -> Self {
+            Self {
+                conceder,
+
+                config,
+
+                wager,
+
+                winner,
+
+                winner_token,
+
+                fee_token,
+
+                vault,
+
+                counter_a,
+
+                counter_b,
+
+                rent_collector,
+
+                event_authority,
+
+                program,
+            }
+        }
+    }
+
+    /// Instruction data for Concede
+    #[derive(Debug, BorshDeserialize, BorshSerialize, Clone)]
+    pub struct ConcedeInstructionData {}
+
+    impl ConcedeInstructionData {
+        pub fn new() -> Self {
+            Self {}
+        }
+    }
+
+    /// Implementation for ConcedeInstruction
+    impl ConcedeInstruction {
+        fn discriminator() -> [u8; 8] {
+            [19u8, 182u8, 3u8, 3u8, 43u8, 35u8, 60u8, 202u8]
+        }
+
+        pub fn data(data: ConcedeInstructionData) -> Self {
+            Self {
+                accounts: ConcedeInstructionAccountMetas::default(),
+                data,
+                remaining_accounts: Vec::new(),
+            }
+        }
+
+        pub fn accounts(mut self, accounts: ConcedeInstructionAccounts) -> Self {
+            self.accounts.conceder = AccountMeta::new_readonly(accounts.conceder, true);
+
+            self.accounts.config = AccountMeta::new(accounts.config, false);
+
+            self.accounts.wager = AccountMeta::new(accounts.wager, false);
+
+            self.accounts.winner = AccountMeta::new_readonly(accounts.winner, false);
+
+            self.accounts.winner_token = AccountMeta::new(accounts.winner_token, false);
+
+            self.accounts.fee_token = AccountMeta::new(accounts.fee_token, false);
+
+            self.accounts.vault = AccountMeta::new(accounts.vault, false);
+
+            self.accounts.counter_a = AccountMeta::new(accounts.counter_a, false);
+
+            self.accounts.counter_b = AccountMeta::new(accounts.counter_b, false);
+
+            self.accounts.rent_collector = AccountMeta::new(accounts.rent_collector, false);
+
+            self.accounts.token_program = AccountMeta::new_readonly(
+                pubkey!("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"),
+                false,
+            );
+
+            self.accounts.event_authority =
+                AccountMeta::new_readonly(accounts.event_authority, false);
+
+            self.accounts.program = AccountMeta::new_readonly(accounts.program, false);
+
+            self
+        }
+
+        pub fn remaining_accounts(mut self, accounts: Vec<AccountMeta>) -> Self {
+            self.remaining_accounts = accounts;
+            self
+        }
+
+        fn to_account_metas(&self) -> Vec<AccountMeta> {
+            let mut metas = Vec::new();
+
+            metas.push(self.accounts.conceder.clone());
+
+            metas.push(self.accounts.config.clone());
+
+            metas.push(self.accounts.wager.clone());
+
+            metas.push(self.accounts.winner.clone());
+
+            metas.push(self.accounts.winner_token.clone());
+
+            metas.push(self.accounts.fee_token.clone());
+
+            metas.push(self.accounts.vault.clone());
+
+            metas.push(self.accounts.counter_a.clone());
+
+            metas.push(self.accounts.counter_b.clone());
+
+            metas.push(self.accounts.rent_collector.clone());
+
+            metas.push(self.accounts.token_program.clone());
+
+            metas.push(self.accounts.event_authority.clone());
+
+            metas.push(self.accounts.program.clone());
+
+            metas.extend(self.remaining_accounts.clone());
+            metas
+        }
+
+        pub fn instruction(&self) -> Instruction {
+            let mut buffer: Vec<u8> = Vec::new();
+
+            buffer.extend_from_slice(&Self::discriminator());
+
+            self.data.serialize(&mut buffer).unwrap();
+
+            Instruction::new_with_bytes(program_id(), &buffer, self.to_account_metas())
+        }
+    }
+
+    // ....................................................................
     // Instruction: CreateWager
     // ....................................................................
 
@@ -1003,6 +1519,152 @@ pub mod shake_escrow {
             metas.push(self.accounts.program_data.clone());
 
             metas.push(self.accounts.system_program.clone());
+
+            metas.extend(self.remaining_accounts.clone());
+            metas
+        }
+
+        pub fn instruction(&self) -> Instruction {
+            let mut buffer: Vec<u8> = Vec::new();
+
+            buffer.extend_from_slice(&Self::discriminator());
+
+            self.data.serialize(&mut buffer).unwrap();
+
+            Instruction::new_with_bytes(program_id(), &buffer, self.to_account_metas())
+        }
+    }
+
+    // ....................................................................
+    // Instruction: ProposeAdmin
+    // ....................................................................
+
+    /// Main instruction struct for ProposeAdmin
+    pub struct ProposeAdminInstruction {
+        pub accounts: ProposeAdminInstructionAccountMetas,
+        pub data: ProposeAdminInstructionData,
+        pub remaining_accounts: Vec<AccountMeta>,
+    }
+
+    /// Account metadata for ProposeAdmin instruction
+    #[derive(Debug, Clone, Default)]
+    pub struct ProposeAdminInstructionAccountMetas {
+        pub admin: AccountMeta,
+
+        pub config: AccountMeta,
+
+        pub admin_transfer: AccountMeta,
+
+        pub system_program: AccountMeta,
+
+        pub event_authority: AccountMeta,
+
+        pub program: AccountMeta,
+    }
+
+    /// Account pubkeys for ProposeAdmin instruction
+    #[derive(Debug, Clone)]
+    pub struct ProposeAdminInstructionAccounts {
+        pub admin: Pubkey,
+
+        pub config: Pubkey,
+
+        pub admin_transfer: Pubkey,
+
+        pub event_authority: Pubkey,
+
+        pub program: Pubkey,
+    }
+
+    impl ProposeAdminInstructionAccounts {
+        pub fn new(
+            admin: Pubkey,
+
+            config: Pubkey,
+
+            admin_transfer: Pubkey,
+
+            event_authority: Pubkey,
+
+            program: Pubkey,
+        ) -> Self {
+            Self {
+                admin,
+
+                config,
+
+                admin_transfer,
+
+                event_authority,
+
+                program,
+            }
+        }
+    }
+
+    /// Instruction data for ProposeAdmin
+    #[derive(Debug, BorshDeserialize, BorshSerialize, Clone)]
+    pub struct ProposeAdminInstructionData {
+        pub new_admin: Pubkey,
+    }
+
+    impl ProposeAdminInstructionData {
+        pub fn new(new_admin: Pubkey) -> Self {
+            Self { new_admin }
+        }
+    }
+
+    /// Implementation for ProposeAdminInstruction
+    impl ProposeAdminInstruction {
+        fn discriminator() -> [u8; 8] {
+            [121u8, 214u8, 199u8, 212u8, 87u8, 39u8, 117u8, 234u8]
+        }
+
+        pub fn data(data: ProposeAdminInstructionData) -> Self {
+            Self {
+                accounts: ProposeAdminInstructionAccountMetas::default(),
+                data,
+                remaining_accounts: Vec::new(),
+            }
+        }
+
+        pub fn accounts(mut self, accounts: ProposeAdminInstructionAccounts) -> Self {
+            self.accounts.admin = AccountMeta::new(accounts.admin, true);
+
+            self.accounts.config = AccountMeta::new_readonly(accounts.config, false);
+
+            self.accounts.admin_transfer = AccountMeta::new(accounts.admin_transfer, false);
+
+            self.accounts.system_program =
+                AccountMeta::new_readonly(pubkey!("11111111111111111111111111111111"), false);
+
+            self.accounts.event_authority =
+                AccountMeta::new_readonly(accounts.event_authority, false);
+
+            self.accounts.program = AccountMeta::new_readonly(accounts.program, false);
+
+            self
+        }
+
+        pub fn remaining_accounts(mut self, accounts: Vec<AccountMeta>) -> Self {
+            self.remaining_accounts = accounts;
+            self
+        }
+
+        fn to_account_metas(&self) -> Vec<AccountMeta> {
+            let mut metas = Vec::new();
+
+            metas.push(self.accounts.admin.clone());
+
+            metas.push(self.accounts.config.clone());
+
+            metas.push(self.accounts.admin_transfer.clone());
+
+            metas.push(self.accounts.system_program.clone());
+
+            metas.push(self.accounts.event_authority.clone());
+
+            metas.push(self.accounts.program.clone());
 
             metas.extend(self.remaining_accounts.clone());
             metas
@@ -1931,6 +2593,58 @@ pub mod shake_escrow {
 // CUSTOM TYPES
 // ============================================================================
 
+/// Custom struct: AdminTransfer
+#[derive(Debug, BorshDeserialize, BorshSerialize, Clone)]
+pub struct AdminTransfer {
+    pub proposed: Pubkey,
+
+    pub bump: u8,
+}
+
+impl AdminTransfer {
+    pub fn new(proposed: Pubkey, bump: u8) -> Self {
+        Self { proposed, bump }
+    }
+}
+
+/// Custom struct: AdminTransferCancelled
+#[derive(Debug, BorshDeserialize, BorshSerialize, Clone)]
+pub struct AdminTransferCancelled {
+    pub proposed: Pubkey,
+}
+
+impl AdminTransferCancelled {
+    pub fn new(proposed: Pubkey) -> Self {
+        Self { proposed }
+    }
+}
+
+/// Custom struct: AdminTransferProposed
+#[derive(Debug, BorshDeserialize, BorshSerialize, Clone)]
+pub struct AdminTransferProposed {
+    pub proposed: Pubkey,
+}
+
+impl AdminTransferProposed {
+    pub fn new(proposed: Pubkey) -> Self {
+        Self { proposed }
+    }
+}
+
+/// Custom struct: AdminTransferred
+#[derive(Debug, BorshDeserialize, BorshSerialize, Clone)]
+pub struct AdminTransferred {
+    pub previous: Pubkey,
+
+    pub admin: Pubkey,
+}
+
+impl AdminTransferred {
+    pub fn new(previous: Pubkey, admin: Pubkey) -> Self {
+        Self { previous, admin }
+    }
+}
+
 /// Custom struct: CancelCleared
 #[derive(Debug, BorshDeserialize, BorshSerialize, Clone)]
 pub struct CancelCleared {
@@ -2307,8 +3021,6 @@ pub struct UpdateConfigArgs {
     pub max_window: Option<i64>,
 
     pub max_total_open: Option<u64>,
-
-    pub new_admin: Option<Pubkey>,
 }
 
 impl UpdateConfigArgs {
@@ -2332,8 +3044,6 @@ impl UpdateConfigArgs {
         max_window: Option<i64>,
 
         max_total_open: Option<u64>,
-
-        new_admin: Option<Pubkey>,
     ) -> Self {
         Self {
             fee_bps,
@@ -2355,8 +3065,6 @@ impl UpdateConfigArgs {
             max_window,
 
             max_total_open,
-
-            new_admin,
         }
     }
 }
@@ -2511,6 +3219,36 @@ impl WagerClosed {
             wager,
 
             surplus_swept,
+        }
+    }
+}
+
+/// Custom struct: WagerConceded
+#[derive(Debug, BorshDeserialize, BorshSerialize, Clone)]
+pub struct WagerConceded {
+    pub wager: Pubkey,
+
+    pub conceder: Pubkey,
+
+    pub winner: Pubkey,
+
+    pub payout: u64,
+
+    pub fee: u64,
+}
+
+impl WagerConceded {
+    pub fn new(wager: Pubkey, conceder: Pubkey, winner: Pubkey, payout: u64, fee: u64) -> Self {
+        Self {
+            wager,
+
+            conceder,
+
+            winner,
+
+            payout,
+
+            fee,
         }
     }
 }

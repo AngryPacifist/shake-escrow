@@ -65,6 +65,13 @@ pub fn counter_pda(wallet: &Pubkey) -> Pubkey {
 pub fn event_authority_pda() -> Pubkey {
     Pubkey::find_program_address(&[b"__event_authority"], &shake_escrow::id()).0
 }
+pub fn admin_transfer_pda() -> Pubkey {
+    Pubkey::find_program_address(
+        &[shake_escrow::constants::ADMIN_TRANSFER_SEED],
+        &shake_escrow::id(),
+    )
+    .0
+}
 
 pub struct Env {
     pub svm: LiteSVM,
@@ -419,6 +426,103 @@ impl Env {
         )
     }
 
+    pub fn ix_concede(
+        &self,
+        conceder: &Pubkey,
+        wager: &Pubkey,
+        w: &shake_escrow::state::Wager,
+        winner: &Pubkey,
+    ) -> Instruction {
+        self.ix_concede_with(
+            conceder,
+            wager,
+            w,
+            winner,
+            &ata_for(winner, &self.mint),
+            &self.fee_token,
+            &self.ops.pubkey(),
+        )
+    }
+    pub fn ix_concede_with(
+        &self,
+        conceder: &Pubkey,
+        wager: &Pubkey,
+        w: &shake_escrow::state::Wager,
+        winner: &Pubkey,
+        winner_token: &Pubkey,
+        fee_token: &Pubkey,
+        rent_collector: &Pubkey,
+    ) -> Instruction {
+        Instruction::new_with_bytes(
+            shake_escrow::id(),
+            &shake_escrow::instruction::Concede {}.data(),
+            shake_escrow::accounts::Concede {
+                conceder: *conceder,
+                config: config_pda(),
+                wager: *wager,
+                winner: *winner,
+                winner_token: *winner_token,
+                fee_token: *fee_token,
+                vault: ata_for(wager, &self.mint),
+                counter_a: counter_pda(&w.side_a),
+                counter_b: counter_pda(&w.side_b),
+                rent_collector: *rent_collector,
+                token_program: token_program_id(),
+                event_authority: event_authority_pda(),
+                program: shake_escrow::id(),
+            }
+            .to_account_metas(None),
+        )
+    }
+
+    pub fn ix_propose_admin(&self, admin: &Pubkey, new_admin: &Pubkey) -> Instruction {
+        Instruction::new_with_bytes(
+            shake_escrow::id(),
+            &shake_escrow::instruction::ProposeAdmin {
+                new_admin: *new_admin,
+            }
+            .data(),
+            shake_escrow::accounts::ProposeAdmin {
+                admin: *admin,
+                config: config_pda(),
+                admin_transfer: admin_transfer_pda(),
+                system_program: system_program::ID,
+                event_authority: event_authority_pda(),
+                program: shake_escrow::id(),
+            }
+            .to_account_metas(None),
+        )
+    }
+    pub fn ix_accept_admin(&self, new_admin: &Pubkey, previous_admin: &Pubkey) -> Instruction {
+        Instruction::new_with_bytes(
+            shake_escrow::id(),
+            &shake_escrow::instruction::AcceptAdmin {}.data(),
+            shake_escrow::accounts::AcceptAdmin {
+                new_admin: *new_admin,
+                config: config_pda(),
+                admin_transfer: admin_transfer_pda(),
+                previous_admin: *previous_admin,
+                event_authority: event_authority_pda(),
+                program: shake_escrow::id(),
+            }
+            .to_account_metas(None),
+        )
+    }
+    pub fn ix_cancel_admin_transfer(&self, admin: &Pubkey) -> Instruction {
+        Instruction::new_with_bytes(
+            shake_escrow::id(),
+            &shake_escrow::instruction::CancelAdminTransfer {}.data(),
+            shake_escrow::accounts::CancelAdminTransfer {
+                admin: *admin,
+                config: config_pda(),
+                admin_transfer: admin_transfer_pda(),
+                event_authority: event_authority_pda(),
+                program: shake_escrow::id(),
+            }
+            .to_account_metas(None),
+        )
+    }
+
     pub fn ix_refund(&self, cranker: &Pubkey, wager: &Pubkey, side: &Pubkey) -> Instruction {
         self.ix_refund_with(cranker, wager, side, &ata_for(side, &self.mint), &counter_pda(side))
     }
@@ -560,6 +664,13 @@ impl Env {
         let ix = self.ix_resolve(wager, &w, winner);
         self.send(&[&resolver], &[ix])
     }
+    pub fn concede(&mut self, conceder: &Keypair, wager: &Pubkey) -> TxResult {
+        let w = self.get_wager(wager);
+        let winner = if conceder.pubkey() == w.side_a { w.side_b } else { w.side_a };
+        let conceder = conceder.insecure_clone();
+        let ix = self.ix_concede(&conceder.pubkey(), wager, &w, &winner);
+        self.send(&[&conceder], &[ix])
+    }
     pub fn refund(&mut self, wager: &Pubkey, side: &Pubkey) -> TxResult {
         let cranker = Keypair::new();
         self.svm.airdrop(&cranker.pubkey(), 1_000_000_000).unwrap();
@@ -612,6 +723,17 @@ pub fn setup() -> Env {
 pub fn setup_with(
     make_args: impl Fn(&Env) -> shake_escrow::instructions::InitializeConfigArgs,
 ) -> Env {
+    let mut env = setup_uninitialized();
+    let args = make_args(&env);
+    let admin = env.admin.insecure_clone();
+    let ix = env.ix_initialize_config(&admin.pubkey(), args);
+    env.send(&[&admin], &[ix]).expect("initialize_config failed");
+    env
+}
+
+/// Everything `setup` builds except the config, so a test can attempt initialization itself
+/// and watch it be refused.
+pub fn setup_uninitialized() -> Env {
     let program_id = shake_escrow::id();
     let mut svm = LiteSVM::new();
     let bytes = include_bytes!(concat!(
@@ -654,7 +776,7 @@ pub fn setup_with(
     MintTo::new(&mut svm, &admin, &mint, &a_token, 1_000 * USDC).send().unwrap();
     MintTo::new(&mut svm, &admin, &mint, &b_token, 1_000 * USDC).send().unwrap();
 
-    let mut env = Env {
+    Env {
         svm,
         admin,
         ops,
@@ -666,12 +788,7 @@ pub fn setup_with(
         fee_token,
         a_token,
         b_token,
-    };
-    let args = make_args(&env);
-    let admin = env.admin.insecure_clone();
-    let ix = env.ix_initialize_config(&admin.pubkey(), args);
-    env.send(&[&admin], &[ix]).expect("initialize_config failed");
-    env
+    }
 }
 
 /// Assert a failed tx carries the named Anchor error (by error name in the logs).

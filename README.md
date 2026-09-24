@@ -15,9 +15,13 @@ against a deliverable; this holds two funders' money against an outcome.
    `refund_side` per side, `close_expired` for the rent. A stranger can free the money and
    cannot take a lamport of it: destinations are pinned at creation.
 3. **The resolver's only power** is naming a winner among the two participants, before the
-   deadline. A stolen resolver key can misresolve open wagers; it can never exfiltrate.
+   deadline. A stolen resolver key can misresolve open wagers; it can never exfiltrate. A
+   participant can also concede a locked wager, which pays the other participant exactly as
+   resolve would; conceding can only ever cost the side that signs it.
 4. **The admin can never touch a live wager.** Config changes (caps, fee, allowlist,
-   pause) apply to future wagers only; live ones carry a snapshot taken at creation.
+   pause) apply to future wagers only; live ones carry a snapshot taken at creation. The
+   admin role changes hands in two steps: the current admin proposes a key, and nothing
+   changes until that key signs to accept.
 5. **Upgradeable, and honest about it.** Whoever holds the upgrade authority can replace
    these bytes. That authority belongs in a multisig, and immutability is a decision to be
    made once the program has earned it — not a claim to make on day one.
@@ -25,9 +29,10 @@ against a deliverable; this holds two funders' money against an outcome.
 ## Instructions
 
 `initialize_config` (gated to the program's upgrade authority) · `update_config` ·
-`create_wager` · `stake_side` · `unstake_side` (unilateral, pre-lock) · `resolve` ·
-`refund_side` (permissionless) · `cancel_propose` / `cancel_clear` / `cancel_accept` ·
-`close_expired` (permissionless)
+`propose_admin` / `accept_admin` / `cancel_admin_transfer` · `create_wager` · `stake_side` ·
+`unstake_side` (unilateral, pre-lock) · `resolve` · `concede` (signed by the side that
+loses) · `refund_side` (permissionless) · `cancel_propose` / `cancel_clear` /
+`cancel_accept` · `close_expired` (permissionless)
 
 ## Build and test
 
@@ -42,7 +47,8 @@ The suite is organised by what it defends: `test_happy` (lifecycle and money mat
 `test_boundaries` (deadline semantics at ±1 second, both deadlines, both directions),
 `test_create_guards`, `test_stake_guards`, `test_resolve_refund_guards` (including frozen
 and closed token accounts), `test_substitution` (every account swapped for a plausible
-imposter must fail), `test_admin`, and `test_regressions`.
+imposter must fail), `test_concede`, `test_admin` (including the exposure-cap bounds and the
+admin handover), and `test_regressions`.
 
 Second fuzzing engine (coverage-guided):
 
@@ -57,10 +63,11 @@ cd trident-tests && TRIDENT_WITH_EXIT_CODE=1 trident fuzz run fuzz_0
 
 ## Verified against a live cluster
 
-`tests/devnet_e2e.rs` drives a deployed program end to end in both directions: a payout,
-and a wager that nobody completes being refunded — with the refund cranked by a wallet
-that has no relationship to the bet, to demonstrate that the exit needs nobody's
-permission and pays the cranker nothing. Point it at your own deployment and watch it.
+`tests/devnet_e2e.rs` drives a deployed program end to end: a payout; a wager that nobody
+completes being refunded, with the refund cranked by a wallet that has no relationship to
+the bet, to demonstrate that the exit needs nobody's permission and pays the cranker
+nothing; and a concession. A second test hands the admin role to a fresh key and back.
+Point it at your own deployment and watch it.
 
 ## Configuration
 
@@ -73,6 +80,11 @@ money path. A test that spends real SOL should never guess which key to spend it
 SHAKE_RPC_URL=https://... SHAKE_PAYER_KEYPAIR=/path/to/id.json \
   cargo test --test devnet_e2e -- --ignored --nocapture
 ```
+
+Against a config initialized earlier, the payout needs the key of the resolver that config
+allows, in `SHAKE_RESOLVER_KEYPAIR`. The handover test writes its temporary admin key to
+`SHAKE_HANDOVER_KEY_OUT` before proposing it, so an interrupted run can still hand the role
+back.
 
 ## Status and posture
 

@@ -99,4 +99,16 @@ pub enum ShakeError {
     MathOverflow,
     #[msg("Config addresses must not be the default pubkey")]
     DefaultAddress,
+
+    // Appended rather than grouped with their neighbours: Anchor numbers error codes by
+    // position, and clients map codes to names, so an insertion would renumber every code
+    // after it.
+    #[msg("Exposure caps invalid: need max_open_per_wallet > 0 and max_stake <= max_total_open / 2")]
+    BadExposureCaps,
+    #[msg("The proposed admin must be a real key other than the current admin")]
+    BadNewAdmin,
+    #[msg("Signer is not the proposed admin")]
+    NotProposedAdmin,
+    #[msg("The winner of a concession must be the conceder's counterparty")]
+    NotCounterparty,
 }

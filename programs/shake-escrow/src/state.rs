@@ -95,6 +95,16 @@ impl Wager {
     }
 }
 
+/// A pending handover of the admin role. PDA seeds ["admin_transfer"]. It exists only between
+/// a proposal and its acceptance or cancellation, and both of those close it. It lives outside
+/// Config so Config keeps the layout that existing deployments hold.
+#[account]
+#[derive(InitSpace)]
+pub struct AdminTransfer {
+    pub proposed: Pubkey,
+    pub bump: u8,
+}
+
 /// Per-wallet funded-exposure counter. PDA seeds ["counter", wallet]. Deliberately has no
 /// close instruction, because closing one would reset the cap it exists to enforce. Its
 /// rent is fronted at the wallet's first stake and floats for the wallet's lifetime.

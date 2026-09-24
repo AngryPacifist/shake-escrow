@@ -1,4 +1,4 @@
-// End-to-end against a deployed program on devnet, in both directions.
+// End-to-end against a deployed program on devnet.
 //
 //   cargo test --test devnet_e2e -- --ignored --nocapture
 //
@@ -7,6 +7,10 @@
 // Direction 2 (refund):  create → ONE side stakes → funding deadline passes → a STRANGER
 //                       wallet cranks refund_side (proving permissionlessness) →
 //                       close_expired reclaims rent.
+// Direction 3 (concede): create → both stake → the losing side concedes → the other side is
+//                       paid exactly as resolve would pay them, with no resolver involved.
+//
+// A second test hands the admin role to a fresh key and back, through propose and accept.
 //
 // Deadlines are 60s and 45s, computed from the chain clock rather than wall time, because
 // devnet's Clock sysvar can lag. They are polled rather than blind-slept for the same
@@ -304,21 +308,24 @@ fn sys_transfer(from: &Pubkey, to: &Pubkey, lamports: u64) -> Instruction {
     }
 }
 
-/// The deploying key, from the environment with no default. This test spends real SOL and
-/// signs as the program's upgrade authority, so it should never guess which key to use.
-fn load_payer() -> Keypair {
-    let path = std::env::var("SHAKE_PAYER_KEYPAIR").unwrap_or_else(|_| {
-        panic!("SHAKE_PAYER_KEYPAIR is not set — point it at the deployer's keypair json")
-    });
+fn load_keypair(var: &str, what: &str) -> Keypair {
+    let path = std::env::var(var)
+        .unwrap_or_else(|_| panic!("{var} is not set — point it at {what}"));
     let raw = std::fs::read_to_string(&path)
         .unwrap_or_else(|e| panic!("could not read the keypair at {path}: {e}"));
     let bytes: Vec<u8> = serde_json::from_str(&raw).expect("keypair json");
     Keypair::try_from(&bytes[..]).expect("keypair bytes")
 }
 
+/// The deploying key, from the environment with no default. This test spends real SOL and
+/// signs as the program's upgrade authority, so it should never guess which key to use.
+fn load_payer() -> Keypair {
+    load_keypair("SHAKE_PAYER_KEYPAIR", "the deployer's keypair json")
+}
+
 #[test]
 #[ignore]
-fn devnet_e2e_both_directions() {
+fn devnet_e2e_payout_refund_concede() {
     let rpc = Rpc;
     // The deployer is also the upgrade authority, the rent payer and the rent collector
     // in this run, which keeps the fixture small.
@@ -426,11 +433,18 @@ fn devnet_e2e_both_directions() {
             "re-fund A/B on the config's pinned mint",
         );
     }
+    // A config this run created names the fresh resolver above. A reused config names its own,
+    // and the payout direction needs that key's signature.
     let resolver_key = cfg_resolver;
     let resolver_signer = if resolver_key == resolver.pubkey() {
         resolver.insecure_clone()
     } else {
-        panic!("existing devnet config pins resolver {resolver_key}; rerun needs that key");
+        let k = load_keypair(
+            "SHAKE_RESOLVER_KEYPAIR",
+            &format!("the keypair of {resolver_key}, the resolver the existing config allows"),
+        );
+        assert_eq!(k.pubkey(), resolver_key, "SHAKE_RESOLVER_KEYPAIR is not the config's resolver");
+        k
     };
 
     let ix_stake = |staker: &Pubkey, wager: &Pubkey| {
@@ -618,12 +632,147 @@ fn devnet_e2e_both_directions() {
         collector_after - collector_before
     );
 
+    println!("\n[direction 3 — concession] both stake, B concedes, A is paid");
+    let n3 = nonce_base + 2;
+    let w3 = wager_pda(&a.pubkey(), n3);
+    let now = rpc.chain_now();
+    let a_before3 = rpc.token_amount(&a_ata);
+    let fee_before3 = rpc.token_amount(&fee_ata);
+    rpc.send(
+        &[&payer],
+        &[ix_create(n3, &a.pubkey(), &b.pubkey(), 10 * USDC, now + 60, now + 120)],
+        &format!("create_wager (10 USDC/side) — wager {w3}"),
+    );
+    rpc.send(&[&payer, &a], &[ix_stake(&a.pubkey(), &w3)], "stake_side — A");
+    rpc.send(&[&payer, &b], &[ix_stake(&b.pubkey(), &w3)], "stake_side — B (wager now Active)");
+    let vault3 = ata_for(&w3, &m);
+    let ix_concede = Instruction::new_with_bytes(
+        shake_escrow::id(),
+        &shake_escrow::instruction::Concede {}.data(),
+        shake_escrow::accounts::Concede {
+            conceder: b.pubkey(),
+            config: cfg_key,
+            wager: w3,
+            winner: a.pubkey(),
+            winner_token: a_ata,
+            fee_token: fee_ata,
+            vault: vault3,
+            counter_a: counter_pda(&a.pubkey()),
+            counter_b: counter_pda(&b.pubkey()),
+            rent_collector: cfg_rent_collector,
+            token_program: token_program_id(),
+            event_authority: event_authority(),
+            program: shake_escrow::id(),
+        }
+        .to_account_metas(None),
+    );
+    let sig_concede = rpc.send(&[&payer, &b], &[ix_concede], "concede — B gives the wager to A");
+    assert_eq!(
+        rpc.token_amount(&a_ata),
+        a_before3 - 10 * USDC + 19_400_000,
+        "winner payout wrong"
+    );
+    assert_eq!(rpc.token_amount(&fee_ata) - fee_before3, 600_000, "fee wrong");
+    assert!(rpc.account_data(&w3).is_none(), "wager should be closed");
+    assert!(rpc.account_data(&vault3).is_none(), "vault should be closed");
+    println!("  · A net +9.4 USDC from B's concession, fee 0.6 USDC, wager+vault closed ✓");
+
     println!("\n=== PROOF ARTIFACTS (devnet) ===");
     println!("program   https://explorer.solana.com/address/{}?cluster=devnet", shake_escrow::id());
     println!("payout    https://explorer.solana.com/tx/{sig_resolve}?cluster=devnet");
     println!("refund    https://explorer.solana.com/tx/{sig_refund}?cluster=devnet");
     println!("close     https://explorer.solana.com/tx/{sig_close}?cluster=devnet");
+    println!("concede   https://explorer.solana.com/tx/{sig_concede}?cluster=devnet");
     println!("wager 1   https://explorer.solana.com/address/{w1}?cluster=devnet");
     println!("wager 2   https://explorer.solana.com/address/{w2}?cluster=devnet");
-    println!("=== both directions verified on live devnet ===\n");
+    println!("wager 3   https://explorer.solana.com/address/{w3}?cluster=devnet");
+    println!("=== all three directions verified on live devnet ===\n");
+}
+
+fn admin_transfer_pda() -> Pubkey {
+    Pubkey::find_program_address(
+        &[shake_escrow::constants::ADMIN_TRANSFER_SEED],
+        &shake_escrow::id(),
+    )
+    .0
+}
+
+fn ix_propose_admin(admin: &Pubkey, new_admin: &Pubkey) -> Instruction {
+    Instruction::new_with_bytes(
+        shake_escrow::id(),
+        &shake_escrow::instruction::ProposeAdmin {
+            new_admin: *new_admin,
+        }
+        .data(),
+        shake_escrow::accounts::ProposeAdmin {
+            admin: *admin,
+            config: config_pda(),
+            admin_transfer: admin_transfer_pda(),
+            system_program: system_program::ID,
+            event_authority: event_authority(),
+            program: shake_escrow::id(),
+        }
+        .to_account_metas(None),
+    )
+}
+
+fn ix_accept_admin(new_admin: &Pubkey, previous_admin: &Pubkey) -> Instruction {
+    Instruction::new_with_bytes(
+        shake_escrow::id(),
+        &shake_escrow::instruction::AcceptAdmin {}.data(),
+        shake_escrow::accounts::AcceptAdmin {
+            new_admin: *new_admin,
+            config: config_pda(),
+            admin_transfer: admin_transfer_pda(),
+            previous_admin: *previous_admin,
+            event_authority: event_authority(),
+            program: shake_escrow::id(),
+        }
+        .to_account_metas(None),
+    )
+}
+
+#[test]
+#[ignore]
+fn devnet_admin_handover_round_trip() {
+    let rpc = Rpc;
+    let payer = load_payer();
+    let admin_now = || {
+        let d = rpc.account_data(&config_pda()).expect("config account");
+        let mut s: &[u8] = &d;
+        shake_escrow::state::Config::try_deserialize(&mut s)
+            .expect("config decode")
+            .admin
+    };
+    assert_eq!(admin_now(), payer.pubkey(), "SHAKE_PAYER_KEYPAIR must hold the admin role");
+
+    // The temporary key is written out before anything is proposed to it. If the run stops
+    // after it accepts, that file is the only way to hand the role back.
+    let out = std::env::var("SHAKE_HANDOVER_KEY_OUT").unwrap_or_else(|_| {
+        panic!("SHAKE_HANDOVER_KEY_OUT is not set — a path to save the temporary admin key to")
+    });
+    let next = Keypair::new();
+    std::fs::write(&out, serde_json::to_string(&next.to_bytes().to_vec()).expect("key json"))
+        .unwrap_or_else(|e| panic!("could not save the temporary key to {out}: {e}"));
+    println!("\n=== admin handover round trip — temporary admin {} saved to {out} ===", next.pubkey());
+
+    rpc.send(&[&payer], &[ix_propose_admin(&payer.pubkey(), &next.pubkey())], "propose_admin → temporary key");
+    rpc.send(
+        &[&payer, &next],
+        &[ix_accept_admin(&next.pubkey(), &payer.pubkey())],
+        "accept_admin — the temporary key takes the role",
+    );
+    assert_eq!(admin_now(), next.pubkey(), "the temporary key should hold the role");
+
+    // The proposal's rent is paid by whoever proposes, which is now the temporary key.
+    rpc.send(&[&payer], &[sys_transfer(&payer.pubkey(), &next.pubkey(), 10_000_000)], "fund the temporary admin");
+    rpc.send(&[&next], &[ix_propose_admin(&next.pubkey(), &payer.pubkey())], "propose_admin → original key");
+    rpc.send(
+        &[&payer],
+        &[ix_accept_admin(&payer.pubkey(), &next.pubkey())],
+        "accept_admin — the original key takes the role back",
+    );
+    assert_eq!(admin_now(), payer.pubkey(), "the original key should hold the role again");
+    assert!(rpc.account_data(&admin_transfer_pda()).is_none(), "no proposal should remain");
+    println!("=== admin role handed over and back on live devnet ===\n");
 }

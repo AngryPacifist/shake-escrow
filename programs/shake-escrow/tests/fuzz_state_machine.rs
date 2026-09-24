@@ -270,8 +270,50 @@ fn run_sequence(seed: u64, steps: usize) {
                     assert!(res.is_err(), "{}", ctx("model-fail unstake accepted"));
                 }
             }
+            // ---- concede (any actor; the named winner is usually the counterparty) ----
+            57..=62 => {
+                if m.wagers.is_empty() {
+                    continue;
+                }
+                let wi = rng.below(m.wagers.len() as u64) as usize;
+                let w = m.wagers[wi].clone();
+                if w.closed {
+                    continue;
+                }
+                let actor = rng.below(ACTORS as u64) as usize;
+                let side = w.side_of(actor);
+                let names_self = rng.below(10) >= 8;
+                let winner = match side {
+                    Some(0) if !names_self => w.sb,
+                    Some(1) if !names_self => w.sa,
+                    _ => actor,
+                };
+                let ok = w.state == MState::Active
+                    && now <= w.d_resolve
+                    && side.is_some()
+                    && !names_self;
+                let onchain = env
+                    .get_wager_opt(&w.key)
+                    .unwrap_or_else(|| panic!("{}", ctx("open wager missing on chain")));
+                let kp = actors[actor].insecure_clone();
+                let ix = env.ix_concede(&kp.pubkey(), &w.key, &onchain, &actors[winner].pubkey());
+                let res = env.send(&[&kp], &[ix]);
+                if ok {
+                    res.unwrap_or_else(|e| panic!("{}: {e:?}", ctx("model-ok concede failed")));
+                    let pot = w.stake * 2;
+                    let fee = ((pot as u128) * (w.fee_bps as u128) / 10_000) as u64;
+                    m.balances[winner] += pot - fee;
+                    m.fee_balance += fee;
+                    m.counters[w.sa] -= 1;
+                    m.counters[w.sb] -= 1;
+                    m.total_open -= pot;
+                    m.wagers[wi].closed = true;
+                } else {
+                    assert!(res.is_err(), "{}", ctx("model-fail concede accepted"));
+                }
+            }
             // ---- resolve (random winner, sometimes invalid) ----
-            51..=62 => {
+            51..=56 => {
                 if m.wagers.is_empty() {
                     continue;
                 }
@@ -439,7 +481,6 @@ fn run_sequence(seed: u64, steps: usize) {
                         paused: None,
                         max_window: None,
                         max_total_open: None,
-                        new_admin: None,
                     },
                 );
                 env.send(&[&admin], &[ix]).unwrap_or_else(|e| panic!("{}: {e:?}", ctx("fee update failed")));

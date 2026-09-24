@@ -45,8 +45,24 @@ pub mod shake_escrow {
         instructions::unstake_side::handle_unstake_side(ctx)
     }
 
+    pub fn propose_admin(ctx: Context<ProposeAdmin>, new_admin: Pubkey) -> Result<()> {
+        instructions::admin_transfer::handle_propose_admin(ctx, new_admin)
+    }
+
+    pub fn accept_admin(ctx: Context<AcceptAdmin>) -> Result<()> {
+        instructions::admin_transfer::handle_accept_admin(ctx)
+    }
+
+    pub fn cancel_admin_transfer(ctx: Context<CancelAdminTransfer>) -> Result<()> {
+        instructions::admin_transfer::handle_cancel_admin_transfer(ctx)
+    }
+
     pub fn resolve(ctx: Context<Resolve>, winner: Pubkey) -> Result<()> {
         instructions::resolve::handle_resolve(ctx, winner)
+    }
+
+    pub fn concede(ctx: Context<Concede>) -> Result<()> {
+        instructions::concede::handle_concede(ctx)
     }
 
     pub fn refund_side(ctx: Context<RefundSide>) -> Result<()> {

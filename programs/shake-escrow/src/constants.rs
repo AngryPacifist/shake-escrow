@@ -9,6 +9,9 @@ pub const WAGER_SEED: &[u8] = b"wager";
 #[constant]
 pub const COUNTER_SEED: &[u8] = b"counter";
 
+#[constant]
+pub const ADMIN_TRANSFER_SEED: &[u8] = b"admin_transfer";
+
 /// Hard ceiling on the fee, in code rather than config: 10%. A rogue or fat-fingered
 /// admin cannot exceed it even for future wagers.
 #[constant]

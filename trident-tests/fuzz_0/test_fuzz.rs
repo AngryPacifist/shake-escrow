@@ -556,6 +556,70 @@ impl FuzzTest {
         self.check_invariants("resolve");
     }
 
+    /// concede — any actor; the named winner is usually the counterparty, sometimes the
+    /// conceder itself, which must be refused.
+    #[flow]
+    fn flow_concede(&mut self) {
+        if self.wagers.is_empty() {
+            return;
+        }
+        let wi = self.trident.random_from_range(0..self.wagers.len());
+        let w = self.wagers[wi].clone();
+        if w.closed {
+            return;
+        }
+        let now = self.now();
+        let actor = self.trident.random_from_range(0..ACTORS);
+        let side = w.side_of(actor);
+        let names_self = self.trident.random_from_range(0u64..10) >= 8;
+        let winner_idx = match side {
+            Some(0) if !names_self => w.sb,
+            Some(1) if !names_self => w.sa,
+            _ => actor,
+        };
+        let ok = w.state == MState::Active && now <= w.d_resolve && side.is_some() && !names_self;
+
+        let conceder = self.actor_keys[actor];
+        let winner = self.actor_keys[winner_idx];
+        let winner_token = self.actor_atas[winner_idx];
+        let vault = self.ata(&w.key);
+        let (ca, cb) = (
+            self.counter_pda(&self.actor_keys[w.sa]),
+            self.counter_pda(&self.actor_keys[w.sb]),
+        );
+        let ix = ConcedeInstruction::data(ConcedeInstructionData::new())
+            .accounts(ConcedeInstructionAccounts::new(
+                conceder,
+                self.config,
+                w.key,
+                winner,
+                winner_token,
+                self.fee_token,
+                vault,
+                ca,
+                cb,
+                Self::ops(),
+                self.event_authority,
+                Self::pid(),
+            ))
+            .instruction();
+        let res = self.trident.process_transaction(&[ix], Some("concede"));
+        if ok {
+            invariant!(res.is_success(), "model-ok concede failed: {}", res.logs());
+            let pot = w.stake * 2;
+            let fee = ((pot as u128) * (w.fee_bps as u128) / 10_000) as u64;
+            self.balances[winner_idx] += pot - fee;
+            self.fee_balance += fee;
+            self.counters[w.sa] -= 1;
+            self.counters[w.sb] -= 1;
+            self.total_open -= pot;
+            self.wagers[wi].closed = true;
+        } else {
+            invariant!(res.is_error(), "model-fail concede accepted");
+        }
+        self.check_invariants("concede");
+    }
+
     /// refund_side: permissionless, and one side at a time.
     #[flow]
     fn flow_refund(&mut self) {
@@ -761,7 +825,6 @@ impl FuzzTest {
             paused: None,
             max_window: None,
             max_total_open: None,
-            new_admin: None,
         };
         let admin = Self::admin().pubkey();
         let ix = UpdateConfigInstruction::data(UpdateConfigInstructionData::new(args))

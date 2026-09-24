@@ -143,7 +143,6 @@ fn default_address_config_rejected() {
         paused: None,
         max_window: None,
         max_total_open: None,
-        new_admin: None,
     };
     let ix = env.ix_update_config(&admin.pubkey(), args.clone());
     expect_err(env.send(&[&admin], &[ix]), "DefaultAddress");

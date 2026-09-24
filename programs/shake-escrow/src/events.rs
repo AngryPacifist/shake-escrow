@@ -67,6 +67,31 @@ pub struct WagerCancelled {
 }
 
 #[event]
+pub struct WagerConceded {
+    pub wager: Pubkey,
+    pub conceder: Pubkey,
+    pub winner: Pubkey,
+    pub payout: u64,
+    pub fee: u64,
+}
+
+#[event]
+pub struct AdminTransferProposed {
+    pub proposed: Pubkey,
+}
+
+#[event]
+pub struct AdminTransferred {
+    pub previous: Pubkey,
+    pub admin: Pubkey,
+}
+
+#[event]
+pub struct AdminTransferCancelled {
+    pub proposed: Pubkey,
+}
+
+#[event]
 pub struct WagerClosed {
     pub wager: Pubkey,
     /// Donations or dust swept to fee_destination at close. Zero in the normal case.

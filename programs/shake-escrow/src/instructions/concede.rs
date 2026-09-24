@@ -4,19 +4,20 @@ use anchor_spl::token::{Token, TokenAccount};
 use crate::{
     constants::*,
     error::ShakeError,
-    events::{WagerClosed, WagerResolved},
+    events::{WagerClosed, WagerConceded},
     instructions::payout::{pay_winner_and_close_vault, split_pot},
     state::*,
 };
 
-/// The resolver's only power: pick the winner among the two participants, before the
-/// deadline. Payout and fee destinations are pinned, the instruction closes everything,
-/// and rent returns to the collector the wager pinned at creation.
+/// A participant gives a locked wager to the other side. The payout, the fee and every
+/// destination are exactly what resolve would produce with the counterparty as winner. The only
+/// stake this can move against its owner's will is the signer's own, so it needs no resolver.
+/// The fee applies as it does on resolve; otherwise any settlement could be routed through a
+/// concession to skip it.
 #[derive(Accounts)]
 #[event_cpi]
-pub struct Resolve<'info> {
-    #[account(address = wager.resolver @ ShakeError::NotResolver)]
-    pub resolver: Signer<'info>,
+pub struct Concede<'info> {
+    pub conceder: Signer<'info>,
     #[account(mut, seeds = [CONFIG_SEED], bump = config.bump)]
     pub config: Box<Account<'info, Config>>,
     #[account(
@@ -26,10 +27,10 @@ pub struct Resolve<'info> {
         bump = wager.bump,
     )]
     pub wager: Box<Account<'info, Wager>>,
-    /// CHECK: must be one of the two participants (core invariant, enforced in handler).
+    /// CHECK: must be the conceder's counterparty (enforced in handler).
     pub winner: UncheckedAccount<'info>,
     /// The winner's canonical ATA. Callers should pre-create it idempotently in the same
-    /// transaction; a missing or frozen account fails the resolve cleanly and leaves the
+    /// transaction; a missing or frozen account fails the concession cleanly and leaves the
     /// timeout refund as the exit.
     #[account(
         mut,
@@ -60,25 +61,35 @@ pub struct Resolve<'info> {
         bump = counter_b.bump,
     )]
     pub counter_b: Box<Account<'info, ExposureCounter>>,
-    /// CHECK: pinned to the wager's stored rent collector. The cranker is never a
-    /// lamport destination.
+    /// CHECK: pinned to the wager's stored rent collector. The conceder is never a lamport
+    /// destination.
     #[account(mut, address = wager.rent_collector @ ShakeError::WrongRentCollector)]
     pub rent_collector: UncheckedAccount<'info>,
     pub token_program: Program<'info, Token>,
 }
 
-pub fn handle_resolve(ctx: Context<Resolve>, winner: Pubkey) -> Result<()> {
+pub fn handle_concede(ctx: Context<Concede>) -> Result<()> {
     let now = Clock::get()?.unix_timestamp;
     let wager = &ctx.accounts.wager;
+    let conceder = ctx.accounts.conceder.key();
 
     require!(wager.state == WagerState::Active, ShakeError::NotActive);
-    // resolve requires now <= deadline and refund requires now > deadline, so the two
-    // can never both be valid in the same slot.
+    // The same window as resolve. A locked wager's refunds start one second after
+    // deadline_resolve, so before then neither side can have been refunded and a concession
+    // always meets a vault holding both stakes.
     require!(now <= wager.deadline_resolve, ShakeError::ResolveExpired);
-    require!(wager.is_participant(&winner), ShakeError::WinnerNotParticipant);
+    require!(wager.is_participant(&conceder), ShakeError::NotAParticipant);
+    let winner = if conceder == wager.side_a {
+        wager.side_b
+    } else {
+        wager.side_a
+    };
+    // The accounts struct leaves `winner` free, and `winner_token` only has to belong to it, so
+    // this check is what keeps the pot inside the wager: without it a conceder could name
+    // themselves, or a stranger, and the payout would go there.
     require!(
         ctx.accounts.winner.key() == winner,
-        ShakeError::WinnerNotParticipant
+        ShakeError::NotCounterparty
     );
 
     let (payout, fee) = split_pot(wager.stake, wager.fee_bps)?;
@@ -113,8 +124,9 @@ pub fn handle_resolve(ctx: Context<Resolve>, winner: Pubkey) -> Result<()> {
     let wager = &mut ctx.accounts.wager;
     wager.state = WagerState::Resolved;
 
-    emit_cpi!(WagerResolved {
+    emit_cpi!(WagerConceded {
         wager: wager.key(),
+        conceder,
         winner,
         payout,
         fee,

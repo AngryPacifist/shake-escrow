@@ -49,6 +49,8 @@ pub fn validate_config_values(
     max_stake: u64,
     resolvers: &[Pubkey],
     max_window: i64,
+    max_open_per_wallet: u8,
+    max_total_open: u64,
 ) -> Result<()> {
     require!(fee_bps <= MAX_FEE_BPS, ShakeError::FeeTooHigh);
     require!(min_stake > 0 && min_stake <= max_stake, ShakeError::BadStakeBounds);
@@ -59,6 +61,14 @@ pub fn validate_config_values(
         ShakeError::BadResolverList
     );
     require!(max_window > 0 && max_window <= MAX_WINDOW_CAP, ShakeError::BadWindow);
+    // A wager locks when its second stake lands, so an empty system must have room for two
+    // stakes at the maximum. Comparing against half the cap keeps the check free of overflow.
+    // A zero per-wallet cap, or a smaller global one, fails every stake while every exit
+    // keeps working: safe, and silent until someone tries to bet.
+    require!(
+        max_open_per_wallet > 0 && max_stake <= max_total_open / 2,
+        ShakeError::BadExposureCaps
+    );
     Ok(())
 }
 
@@ -72,6 +82,8 @@ pub fn handle_initialize_config(
         args.max_stake,
         &args.resolvers,
         args.max_window,
+        args.max_open_per_wallet,
+        args.max_total_open,
     )?;
     // A default-pubkey destination would make resolves and closes fail into the refund
     // path, which is safe but silent. Reject it here where the operator can see it.

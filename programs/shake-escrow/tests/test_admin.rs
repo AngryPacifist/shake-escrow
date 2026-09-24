@@ -1,6 +1,7 @@
 // The admin surface: snapshot isolation on live wagers, initialization gating, config
-// value guards, and admin transfer.
+// value guards including the exposure caps, and the two-step admin handover.
 mod common;
+use anchor_lang::Space;
 use common::*;
 use solana_keypair::Keypair;
 use solana_signer::Signer;
@@ -17,8 +18,17 @@ fn no_change_args() -> shake_escrow::instructions::UpdateConfigArgs {
         paused: None,
         max_window: None,
         max_total_open: None,
-        new_admin: None,
     }
+}
+
+fn funded_key(env: &mut Env) -> Keypair {
+    let k = Keypair::new();
+    env.svm.airdrop(&k.pubkey(), 1_000_000_000).unwrap();
+    k
+}
+
+fn transfer_rent(env: &mut Env) -> u64 {
+    env.min_rent(8 + shake_escrow::state::AdminTransfer::INIT_SPACE)
 }
 
 #[test]
@@ -98,24 +108,185 @@ fn config_value_guards() {
 }
 
 #[test]
-fn non_admin_update_rejected_and_admin_transfer_works() {
+fn non_admin_update_rejected() {
     let mut env = setup();
-    let outsider = Keypair::new();
-    env.svm.airdrop(&outsider.pubkey(), 1_000_000_000).unwrap();
+    let outsider = funded_key(&mut env);
     let ix = env.ix_update_config(&outsider.pubkey(), no_change_args());
     expect_err(env.send(&[&outsider], &[ix]), "NotAdmin");
+}
 
-    // Transfer admin → outsider; old admin loses power, new one has it.
+#[test]
+fn handover_takes_effect_only_when_the_successor_accepts() {
+    let mut env = setup();
     let admin = env.admin.insecure_clone();
-    let mut args = no_change_args();
-    args.new_admin = Some(outsider.pubkey());
-    let ix = env.ix_update_config(&admin.pubkey(), args);
-    env.send(&[&admin], &[ix]).expect("admin transfer");
+    let next = funded_key(&mut env);
+
+    let ix = env.ix_propose_admin(&admin.pubkey(), &next.pubkey());
+    env.send(&[&admin], &[ix]).expect("propose");
+
+    let ix = env.ix_update_config(&admin.pubkey(), no_change_args());
+    env.send(&[&admin], &[ix]).expect("old admin still updates");
+    let ix = env.ix_update_config(&next.pubkey(), no_change_args());
+    expect_err(env.send(&[&next], &[ix]), "NotAdmin");
+
+    let rent = transfer_rent(&mut env);
+    let admin_before = env.lamports(&admin.pubkey());
+    let ix = env.ix_accept_admin(&next.pubkey(), &admin.pubkey());
+    env.send(&[&next], &[ix]).expect("accept");
+    assert_eq!(env.get_config().admin, next.pubkey());
+    assert!(env.account_gone(&admin_transfer_pda()));
+    assert_eq!(env.lamports(&admin.pubkey()), admin_before + rent);
 
     let ix = env.ix_update_config(&admin.pubkey(), no_change_args());
     expect_err(env.send(&[&admin], &[ix]), "NotAdmin");
-    let ix = env.ix_update_config(&outsider.pubkey(), no_change_args());
-    env.send(&[&outsider], &[ix]).expect("new admin works");
+    let ix = env.ix_update_config(&next.pubkey(), no_change_args());
+    env.send(&[&next], &[ix]).expect("new admin updates");
+}
+
+#[test]
+fn propose_guards() {
+    let mut env = setup();
+    let admin = env.admin.insecure_clone();
+    let outsider = funded_key(&mut env);
+
+    let ix = env.ix_propose_admin(&outsider.pubkey(), &outsider.pubkey());
+    expect_err(env.send(&[&outsider], &[ix]), "NotAdmin");
+
+    let ix = env.ix_propose_admin(&admin.pubkey(), &anchor_lang::prelude::Pubkey::default());
+    expect_err(env.send(&[&admin], &[ix]), "BadNewAdmin");
+
+    let ix = env.ix_propose_admin(&admin.pubkey(), &admin.pubkey());
+    expect_err(env.send(&[&admin], &[ix]), "BadNewAdmin");
+}
+
+#[test]
+fn only_the_proposed_key_can_accept() {
+    let mut env = setup();
+    let admin = env.admin.insecure_clone();
+    let proposed = funded_key(&mut env);
+    let impostor = funded_key(&mut env);
+
+    let ix = env.ix_propose_admin(&admin.pubkey(), &proposed.pubkey());
+    env.send(&[&admin], &[ix]).expect("propose");
+
+    let ix = env.ix_accept_admin(&impostor.pubkey(), &admin.pubkey());
+    expect_err(env.send(&[&impostor], &[ix]), "NotProposedAdmin");
+
+    // The rent destination is pinned to the outgoing admin, so the successor cannot claim it.
+    let ix = env.ix_accept_admin(&proposed.pubkey(), &proposed.pubkey());
+    expect_err(env.send(&[&proposed], &[ix]), "NotAdmin");
+
+    assert_eq!(env.get_config().admin, admin.pubkey());
+}
+
+#[test]
+fn proposing_again_replaces_the_target() {
+    let mut env = setup();
+    let admin = env.admin.insecure_clone();
+    let first = funded_key(&mut env);
+    let second = funded_key(&mut env);
+
+    let ix = env.ix_propose_admin(&admin.pubkey(), &first.pubkey());
+    env.send(&[&admin], &[ix]).expect("first proposal");
+    let ix = env.ix_propose_admin(&admin.pubkey(), &second.pubkey());
+    env.send(&[&admin], &[ix]).expect("second proposal");
+
+    let ix = env.ix_accept_admin(&first.pubkey(), &admin.pubkey());
+    expect_err(env.send(&[&first], &[ix]), "NotProposedAdmin");
+    let ix = env.ix_accept_admin(&second.pubkey(), &admin.pubkey());
+    env.send(&[&second], &[ix]).expect("second accepts");
+    assert_eq!(env.get_config().admin, second.pubkey());
+}
+
+#[test]
+fn a_cancelled_proposal_cannot_be_accepted() {
+    let mut env = setup();
+    let admin = env.admin.insecure_clone();
+    let proposed = funded_key(&mut env);
+
+    let ix = env.ix_propose_admin(&admin.pubkey(), &proposed.pubkey());
+    env.send(&[&admin], &[ix]).expect("propose");
+
+    let ix = env.ix_cancel_admin_transfer(&proposed.pubkey());
+    expect_err(env.send(&[&proposed], &[ix]), "NotAdmin");
+
+    let rent = transfer_rent(&mut env);
+    let admin_before = env.lamports(&admin.pubkey());
+    // A second signer pays the fee, so the admin's balance moves by the rent alone.
+    let payer = funded_key(&mut env);
+    let ix = env.ix_cancel_admin_transfer(&admin.pubkey());
+    env.send(&[&payer, &admin], &[ix]).expect("cancel");
+    assert!(env.account_gone(&admin_transfer_pda()));
+    assert_eq!(env.lamports(&admin.pubkey()), admin_before + rent);
+
+    let ix = env.ix_accept_admin(&proposed.pubkey(), &admin.pubkey());
+    assert!(env.send(&[&proposed], &[ix]).is_err(), "accept after cancel must fail");
+    assert_eq!(env.get_config().admin, admin.pubkey());
+}
+
+#[test]
+fn a_mistyped_proposal_changes_nothing() {
+    // The fault the handover exists for: a well-formed key nobody holds. It can hold the
+    // proposal for ever and never the role.
+    let mut env = setup();
+    let admin = env.admin.insecure_clone();
+    let typo = Keypair::new().pubkey();
+    let ix = env.ix_propose_admin(&admin.pubkey(), &typo);
+    env.send(&[&admin], &[ix]).expect("propose to a typo");
+
+    assert_eq!(env.get_config().admin, admin.pubkey());
+    let ix = env.ix_update_config(&admin.pubkey(), no_change_args());
+    env.send(&[&admin], &[ix]).expect("admin keeps the role");
+}
+
+#[test]
+fn initialization_refuses_unusable_exposure_caps() {
+    let mut env = setup_uninitialized();
+    let admin = env.admin.insecure_clone();
+
+    let mut args = env.default_config_args();
+    args.max_open_per_wallet = 0;
+    let ix = env.ix_initialize_config(&admin.pubkey(), args);
+    expect_err(env.send(&[&admin], &[ix]), "BadExposureCaps");
+
+    // One unit short of two maximum stakes: a wager at the maximum could never lock.
+    let mut args = env.default_config_args();
+    args.max_total_open = 2 * args.max_stake - 1;
+    let ix = env.ix_initialize_config(&admin.pubkey(), args);
+    expect_err(env.send(&[&admin], &[ix]), "BadExposureCaps");
+
+    let mut args = env.default_config_args();
+    args.max_total_open = 2 * args.max_stake;
+    let ix = env.ix_initialize_config(&admin.pubkey(), args);
+    env.send(&[&admin], &[ix]).expect("room for exactly one maximum wager is enough");
+}
+
+#[test]
+fn updates_refuse_unusable_exposure_caps() {
+    let mut env = setup();
+    let admin = env.admin.insecure_clone();
+    let max_stake = env.get_config().max_stake;
+
+    let mut args = no_change_args();
+    args.max_open_per_wallet = Some(0);
+    let ix = env.ix_update_config(&admin.pubkey(), args);
+    expect_err(env.send(&[&admin], &[ix]), "BadExposureCaps");
+
+    let mut args = no_change_args();
+    args.max_total_open = Some(2 * max_stake - 1);
+    let ix = env.ix_update_config(&admin.pubkey(), args);
+    expect_err(env.send(&[&admin], &[ix]), "BadExposureCaps");
+
+    let mut args = no_change_args();
+    args.max_total_open = Some(2 * max_stake);
+    let ix = env.ix_update_config(&admin.pubkey(), args);
+    env.send(&[&admin], &[ix]).expect("global cap at two maximum stakes");
+
+    // Raising the maximum stake past half the global cap is refused in the same way.
+    let mut args = no_change_args();
+    args.max_stake = Some(max_stake + 1);
+    let ix = env.ix_update_config(&admin.pubkey(), args);
+    expect_err(env.send(&[&admin], &[ix]), "BadExposureCaps");
 }
 
 #[test]

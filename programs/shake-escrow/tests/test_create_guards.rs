@@ -134,7 +134,6 @@ fn paused_blocks_create_never_exits() {
             resolvers: None,
             max_window: None,
             max_total_open: None,
-            new_admin: None,
         },
     );
     env.send(&[&admin], &[ix]).expect("pause");

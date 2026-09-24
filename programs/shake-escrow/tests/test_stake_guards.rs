@@ -64,38 +64,40 @@ fn wallet_cap_enforced_and_released() {
 #[test]
 fn global_cap_enforced() {
     // The circuit-breaker counts funded value across every live wager, so creating them
-    // costs nothing against it and only real money moves the number.
+    // costs nothing against it and only real money moves the number. The cap must hold two
+    // maximum stakes, so the maximum stake comes down with it.
     let mut env = setup();
     let admin = env.admin.insecure_clone();
     let ix = env.ix_update_config(
         &admin.pubkey(),
         shake_escrow::instructions::UpdateConfigArgs {
             max_total_open: Some(60 * USDC),
+            max_stake: Some(30 * USDC),
             fee_bps: None,
             fee_destination: None,
             rent_collector: None,
             min_stake: None,
-            max_stake: None,
             max_open_per_wallet: None,
             resolvers: None,
             paused: None,
             max_window: None,
-            new_admin: None,
         },
     );
     env.send(&[&admin], &[ix]).expect("set global cap");
 
-    let wager = env.create(1, 50 * USDC);
     let a = env.a.insecure_clone();
     let b = env.b.insecure_clone();
-    env.stake(&a, &wager).expect("first 50 fits under 60");
-    expect_err(env.stake(&b, &wager), "GlobalCapExceeded"); // 100 > 60
+    let first = env.create(1, 30 * USDC);
+    env.stake(&a, &first).expect("30 of 60");
+    env.stake(&b, &first).expect("60 of 60: the cap holds exactly one maximum wager");
+    let second = env.create(2, 30 * USDC);
+    expect_err(env.stake(&a, &second), "GlobalCapExceeded"); // 90 > 60
 
-    // A releases → 0 open → B's 50 fits.
-    let ix = env.ix_unstake(&a.pubkey(), &wager);
-    env.send(&[&a], &[ix]).expect("unstake");
-    env.stake(&b, &wager).expect("stake under freed cap");
-    assert_eq!(env.get_config().total_open_value, 50 * USDC);
+    // Settling the first releases its 60, and the next stake fits.
+    let a_pk = a.pubkey();
+    env.resolve_to(&first, &a_pk).expect("resolve");
+    env.stake(&a, &second).expect("stake under freed cap");
+    assert_eq!(env.get_config().total_open_value, 30 * USDC);
 }
 
 #[test]
