@@ -625,7 +625,7 @@ fn devnet_e2e_payout_refund_concede() {
     let collector_after = rpc.lamports(&cfg_rent_collector);
     assert!(
         collector_after > collector_before,
-        "rent must land with the pinned collector, not the cranker (E21)"
+        "rent must land with the pinned collector, not the cranker"
     );
     println!(
         "  · rent {} lamports → pinned collector, cranker got nothing ✓",

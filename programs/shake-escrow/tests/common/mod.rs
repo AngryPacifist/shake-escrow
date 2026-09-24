@@ -695,7 +695,7 @@ fn force_upgrade_authority(svm: &mut LiteSVM, program_id: &Pubkey, authority: &P
     assert_eq!(
         prog.owner,
         upgradeable_loader_id(),
-        "LiteSVM did not deploy under the upgradeable loader; E39 fixture needs adapting"
+        "LiteSVM did not deploy under the upgradeable loader; the upgrade-authority fixture needs adapting"
     );
     assert_eq!(
         u32::from_le_bytes(prog.data[0..4].try_into().unwrap()),
